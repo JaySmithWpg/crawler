@@ -74,4 +74,8 @@ func TestSetResponse(t *testing.T) {
 	if !reflect.DeepEqual(header["foo"], record.Headers()["foo"]) {
 		t.Errorf("HTTP response headers not correctly set: %s\n Should be: %s", record.Headers(), header)
 	}
+
+	if !record.HasResponse() {
+		t.Errorf("HasResponse flag not set")
+	}
 }

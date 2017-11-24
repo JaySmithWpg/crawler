@@ -1,78 +1,82 @@
-// Package for resolving the IP addresses of hosts in the Request interface.
+// Package resolver is for resolving the IP addresses of hosts in the Message interface.
 package resolver
 
 import (
-	"fmt"
 	"net"
 	"sync"
 )
 
-//TODO: NO. Update to no longer use a worker thread model.
-const resolverThreads = 5
-
-// The following values can be stubbed out during testing
-var dnsResolver = net.LookupIP
-
-//TODO: Update error handling to be consistent with downloader 
-type Error struct {
-	HostName    string
-	Description string
-}
-
-type Request interface {
+// Message interface passed to and from the resolver
+type Message interface {
 	HostName() string
 	Address() net.IP
 	SetAddress(net.IP)
+	Error() string
+	SetError(string)
 }
 
-func (e *Error) Error() string {
-	return fmt.Sprintf("%s: %s", e.HostName, e.Description)
+type resolver struct {
+	dnsResolver func(domain string) ([]net.IP, error)
+	resolved    chan<- Message
+	errors      chan<- Message
+	cacheLock   sync.RWMutex
+	waitGroup   sync.WaitGroup
+	cache       map[string]net.IP
 }
 
-// Receives a channel of DownloadRequest pointers and resolves their IP address.
-// Returns a channel of DownloadRequest pointers with their IP address populated.
-// Also returns a channel of Errors
-func Resolver(requests <-chan Request) (<-chan Request, <-chan *Error) {
-	resolved := make(chan Request)
-	errors := make(chan *Error)
+// Create receives a channel of Messages and resolves their IP address.
+// Returns a channel of Messages pointers with their IP address populated.
+// Also returns a channel of Messages that encountered errors
+func Create(requests <-chan Message) (<-chan Message, <-chan Message) {
+	return createInjected(requests, net.LookupIP)
+}
 
-	//TODO: proper cache that expires entries rather than eat all memory
-	cache := make(map[string]net.IP)
-	lock := &sync.RWMutex{}
+func createInjected(requests <-chan Message, dnsResolver func(string) ([]net.IP, error)) (<-chan Message, <-chan Message) {
+	resolved := make(chan Message)
+	errors := make(chan Message)
+
+	r := &resolver{
+		dnsResolver: dnsResolver,
+		cacheLock:   sync.RWMutex{},
+		cache:       make(map[string]net.IP),
+		resolved:    resolved,
+		errors:      errors,
+	}
 
 	go func() {
 		defer close(resolved)
 		defer close(errors)
-		var wg sync.WaitGroup
 		for request := range requests {
-			wg.Add(1)
-			go resolveWorker(request, resolved, errors, cache, lock, &wg)
+			r.waitGroup.Add(1)
+			go r.resolve(request)
 		}
-		wg.Wait()
+		r.waitGroup.Wait()
 	}()
+
 	return resolved, errors
 }
 
-func resolveWorker(request Request, results chan<- Request, errors chan<- *Error, cache map[string]net.IP, lock *sync.RWMutex, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (r *resolver) resolve(request Message) {
+	defer r.waitGroup.Done()
 
-	lock.RLock()
-	cachedIP := cache[request.HostName()]
-	lock.RUnlock()
+	r.cacheLock.RLock()
+	cachedIP := r.cache[request.HostName()]
+	r.cacheLock.RUnlock()
 	if cachedIP == nil {
-		responseIps, err := dnsResolver(request.HostName())
+		responseIps, err := r.dnsResolver(request.HostName())
 
 		if err != nil {
-			errors <- &Error{HostName: request.HostName(), Description: err.Error()}
+			request.SetError(err.Error())
+			r.errors <- request
 		} else {
-			lock.Lock()
-			cache[request.HostName()] = responseIps[0]
-			lock.Unlock()
+			r.cacheLock.Lock()
+			r.cache[request.HostName()] = responseIps[0]
+			r.cacheLock.Unlock()
 			request.SetAddress(responseIps[0])
-			results <- request
+			r.resolved <- request
 		}
 	} else {
 		request.SetAddress(cachedIP)
-		results <- request
+		r.resolved <- request
 	}
 }

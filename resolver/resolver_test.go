@@ -11,25 +11,21 @@ func TestResolverSuccess(t *testing.T) {
 	expectedAddress := net.IPv4(2, 2, 2, 3)
 
 	// stub out the dns resolver
-	oldResolver := dnsResolver
-	defer func() { dnsResolver = oldResolver }()
-	dnsResolver = func(domain string) ([]net.IP, error) {
+	dnsResolver := func(domain string) ([]net.IP, error) {
 		if domain == "Monkeyland.com" {
 			return []net.IP{expectedAddress}, nil
 		}
 		return []net.IP{net.IPv6zero}, nil
 	}
-
-	resolveRequests := make(chan Request)
+	requests := make(chan Message)
+	resolvedMessages, _ := createInjected(requests, dnsResolver)
 
 	go func() {
-		defer close(resolveRequests)
-		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
+		defer close(requests)
+		requests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
-	resolvedRequests, _ := Resolver(resolveRequests)
-
-	resolved := <-resolvedRequests
+	resolved := <-resolvedMessages
 
 	if !resolved.Address().Equal(expectedAddress) {
 		t.Errorf("Expected %s, found %s", expectedAddress.String(), resolved.Address().String())
@@ -38,29 +34,26 @@ func TestResolverSuccess(t *testing.T) {
 
 func TestResolverFailure(t *testing.T) {
 	// stub out the dns resolver
-	oldResolver := dnsResolver
-	defer func() { dnsResolver = oldResolver }()
-	dnsResolver = func(domain string) ([]net.IP, error) {
+	dnsResolver := func(domain string) ([]net.IP, error) {
 		return nil, errors.New("Can't Resolve Domain")
 	}
 
-	resolveRequests := make(chan Request)
+	requests := make(chan Message)
 
 	go func() {
-		defer close(resolveRequests)
-		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
+		defer close(requests)
+		requests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
-	_, failedRequests := Resolver(resolveRequests)
+	_, failedMessages := createInjected(requests, dnsResolver)
+	resolverError := <-failedMessages
 
-	resolverError := <-failedRequests
-
-	if resolverError.Error() != "Monkeyland.com: Can't Resolve Domain" {
+	if resolverError.Error() != "Can't Resolve Domain" {
 		t.Errorf("Unexpected error message returned: %s", resolverError.Error())
 	}
 
-	if resolverError.HostName != "Monkeyland.com" {
-		t.Errorf("Unexpected domain returned: %s", resolverError.HostName)
+	if resolverError.HostName() != "Monkeyland.com" {
+		t.Errorf("Unexpected domain returned: %s", resolverError.HostName())
 	}
 }
 
@@ -69,9 +62,7 @@ func TestResolverCache(t *testing.T) {
 	resolverCalled := false
 
 	// stub out the dns resolver
-	oldResolver := dnsResolver
-	defer func() { dnsResolver = oldResolver }()
-	dnsResolver = func(domain string) ([]net.IP, error) {
+	dnsResolver := func(domain string) ([]net.IP, error) {
 		if resolverCalled {
 			t.Errorf("Resolver called too many times")
 		}
@@ -82,17 +73,17 @@ func TestResolverCache(t *testing.T) {
 		return []net.IP{net.IPv6zero}, nil
 	}
 
-	resolveRequests := make(chan Request)
-	defer close(resolveRequests)
+	requests := make(chan Message)
+	defer close(requests)
 
-	resolvedRequests, _ := Resolver(resolveRequests)
+	resolvedMessages, _ := createInjected(requests, dnsResolver)
 	go func() {
-		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
+		requests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
-	<-resolvedRequests
+	<-resolvedMessages
 	go func() {
-		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
+		requests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
-	<-resolvedRequests
+	<-resolvedMessages
 }

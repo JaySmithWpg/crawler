@@ -8,10 +8,11 @@ import (
 	"sync"
 )
 
+//just a throwaway main function
 func main() {
 	var wg sync.WaitGroup
-	resolveRequests := make(chan resolver.Request)
-	results, resolveErrors := resolver.Resolver(resolveRequests)
+	resolveRequests := make(chan resolver.Message)
+	results, resolveErrors := resolver.Create(resolveRequests)
 
 	downloadRequests := make(chan downloader.Request)
 	downloads, downloadErrors := downloader.Downloader(downloadRequests)

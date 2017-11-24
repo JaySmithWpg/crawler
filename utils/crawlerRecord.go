@@ -7,6 +7,20 @@ import (
 	"strings"
 )
 
+type CrawlerRecord interface {
+	HostName() string
+	Path() string
+	Port() int
+	IsHttps() bool
+	HasResponse() bool
+	Address() net.IP
+	SetAddress(net.IP)
+	SetResponse(*http.Response)
+	Body() *[]byte
+	Headers() map[string][]string
+	Error() string
+	SetError(string)
+}
 type crawlerRecord struct {
 	hostName    string
 	path        string
@@ -60,6 +74,7 @@ func (c *crawlerRecord) SetResponse(r *http.Response) {
 	r.Body.Read(c.body)
 	r.Body.Close()
 	c.headers = r.Header
+	c.hasResponse = true
 }
 
 func (c *crawlerRecord) Error() string {
@@ -71,8 +86,7 @@ func (c *crawlerRecord) SetError(e string) {
 }
 
 //Take an url and turns it into a record for crawling
-func CreateCrawlerRecord(url string) *crawlerRecord {
-
+func CreateCrawlerRecord(url string) CrawlerRecord {
 	isHttps := strings.HasPrefix(strings.ToLower(url), "https")
 
 	var domainStart int
