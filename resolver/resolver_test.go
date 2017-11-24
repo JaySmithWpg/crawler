@@ -1,6 +1,7 @@
-package main
+package resolver
 
 import (
+	"crawler/utils"
 	"errors"
 	"net"
 	"testing"
@@ -19,28 +20,20 @@ func TestResolverSuccess(t *testing.T) {
 		return []net.IP{net.IPv6zero}, nil
 	}
 
-	resolveRequests := make(chan *downloadRequest)
+	resolveRequests := make(chan Request)
 
 	go func() {
 		defer close(resolveRequests)
-		resolveRequests <- &downloadRequest{
-			hostName: "Monkeyland.com",
-			path:     "/",
-			port:     443,
-			https:    true,
-			newHost:  true,
-			address:  net.IPv6zero,
-		}
+		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
-	resolvedRequests, _ := resolver(resolveRequests)
+	resolvedRequests, _ := Resolver(resolveRequests)
 
 	resolved := <-resolvedRequests
 
-	if !resolved.address.Equal(expectedAddress) {
-		t.Errorf("Expected %s, found %s", expectedAddress.String(), resolved.address.String())
+	if !resolved.Address().Equal(expectedAddress) {
+		t.Errorf("Expected %s, found %s", expectedAddress.String(), resolved.Address().String())
 	}
-
 }
 
 func TestResolverFailure(t *testing.T) {
@@ -51,21 +44,14 @@ func TestResolverFailure(t *testing.T) {
 		return nil, errors.New("Can't Resolve Domain")
 	}
 
-	resolveRequests := make(chan *downloadRequest)
+	resolveRequests := make(chan Request)
 
 	go func() {
 		defer close(resolveRequests)
-		resolveRequests <- &downloadRequest{
-			hostName: "Monkeyland.com",
-			path:     "/",
-			port:     443,
-			https:    true,
-			newHost:  true,
-			address:  net.IPv6zero,
-		}
+		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
-	_, failedRequests := resolver(resolveRequests)
+	_, failedRequests := Resolver(resolveRequests)
 
 	resolverError := <-failedRequests
 
@@ -73,8 +59,8 @@ func TestResolverFailure(t *testing.T) {
 		t.Errorf("Unexpected error message returned: %s", resolverError.Error())
 	}
 
-	if resolverError.hostName != "Monkeyland.com" {
-		t.Errorf("Unexpected domain returned: %s", resolverError.hostName)
+	if resolverError.HostName != "Monkeyland.com" {
+		t.Errorf("Unexpected domain returned: %s", resolverError.HostName)
 	}
 }
 
@@ -96,32 +82,17 @@ func TestResolverCache(t *testing.T) {
 		return []net.IP{net.IPv6zero}, nil
 	}
 
-	resolveRequests := make(chan *downloadRequest)
+	resolveRequests := make(chan Request)
 	defer close(resolveRequests)
 
-	resolvedRequests, _ := resolver(resolveRequests)
+	resolvedRequests, _ := Resolver(resolveRequests)
 	go func() {
-		resolveRequests <- &downloadRequest{
-			hostName: "Monkeyland.com",
-			path:     "/",
-			port:     443,
-			https:    true,
-			newHost:  true,
-			address:  net.IPv6zero,
-		}
+		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 
 	<-resolvedRequests
 	go func() {
-		resolveRequests <- &downloadRequest{
-			hostName: "Monkeyland.com",
-			path:     "/",
-			port:     443,
-			https:    true,
-			newHost:  true,
-			address:  net.IPv6zero,
-		}
+		resolveRequests <- utils.CreateCrawlerRecord("http://Monkeyland.com")
 	}()
 	<-resolvedRequests
-
 }

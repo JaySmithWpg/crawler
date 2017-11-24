@@ -1,123 +1,61 @@
 package main
 
 import (
+	"crawler/downloader"
+	"crawler/resolver"
+	"crawler/utils"
 	"fmt"
-	"net"
 	"sync"
 )
 
-const resolverThreads = 5
-
-// The following values can be stubbed out during testing
-var dnsResolver = net.LookupIP
-
-type downloadRequest struct {
-	hostName string
-	path     string
-	port     int
-	https    bool
-	newHost  bool
-	address  net.IP
-}
-
-type resolverError struct {
-	hostName    string
-	description string
-}
-
-func (e *resolverError) Error() string {
-	return fmt.Sprintf("%s: %s", e.hostName, e.description)
-}
-
-func resolver(requests <-chan *downloadRequest) (<-chan *downloadRequest, <-chan *resolverError) {
-	resolved := make(chan *downloadRequest)
-	errors := make(chan *resolverError)
-
-	//TODO: proper cache that expires entries rather than eat all memory
-	cache := make(map[string]net.IP)
-	lock := &sync.RWMutex{}
-
-	go func() {
-		defer close(resolved)
-		defer close(errors)
-		var wg sync.WaitGroup
-		for request := range requests {
-			wg.Add(1)
-			go resolveWorker(request, resolved, errors, cache, lock, &wg)
-		}
-		wg.Wait()
-	}()
-	return resolved, errors
-}
-
-func resolveWorker(request *downloadRequest, results chan<- *downloadRequest, errors chan<- *resolverError, cache map[string]net.IP, lock *sync.RWMutex, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	lock.RLock()
-	cachedIP := cache[request.hostName]
-	lock.RUnlock()
-	if cachedIP == nil {
-		responseIps, err := dnsResolver(request.hostName)
-
-		if err != nil {
-			errors <- &resolverError{hostName: request.hostName, description: err.Error()}
-		} else {
-			lock.Lock()
-			cache[request.hostName] = responseIps[0]
-			lock.Unlock()
-			request.address = responseIps[0]
-			results <- request
-		}
-	} else {
-		request.address = cachedIP
-		results <- request
-	}
-}
-
 func main() {
 	var wg sync.WaitGroup
-	requests := make(chan *downloadRequest)
-	results, errors := resolver(requests)
+	resolveRequests := make(chan resolver.Request)
+	results, resolveErrors := resolver.Resolver(resolveRequests)
 
-	wg.Add(2)
+	downloadRequests := make(chan downloader.Request)
+	downloads, downloadErrors := downloader.Downloader(downloadRequests)
+
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
+		defer close(downloadRequests)
 		for result := range results {
-			fmt.Printf("%s: %s\n", result.hostName, result.address.String())
+			fmt.Printf("%s: %s\n", result.HostName(), result.Address().String())
+			downloadRequest, ok := result.(downloader.Request)
+			if ok {
+				downloadRequests <- downloadRequest
+			}
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for err := range errors {
+		for err := range resolveErrors {
 			fmt.Printf("Error: %s\n", err.Error())
 		}
 	}()
 
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.gooffe.com"}
-	requests <- &downloadRequest{hostName: "www.gotogle.com"}
-	requests <- &downloadRequest{hostName: "www.godasdogle.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.godarogle.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.gdardsoogle.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.amazon.ca"}
-	requests <- &downloadRequest{hostName: "www.amazon.ca"}
-	requests <- &downloadRequest{hostName: "www.amazon.ca"}
-	requests <- &downloadRequest{hostName: "www.amazon.ca"}
-	requests <- &downloadRequest{hostName: "www.amazon.com"}
-	requests <- &downloadRequest{hostName: "www.amazon.ca"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	requests <- &downloadRequest{hostName: "www.google.com"}
-	close(requests)
+	go func() {
+		defer wg.Done()
+		for downloaded := range downloads {
+			fmt.Printf("%s\n", downloaded.Headers())
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for downloadError := range downloadErrors {
+			fmt.Printf("%s: %s\n", downloadError.HostName(), downloadError.Error())
+		}
+	}()
+
+	resolveRequests <- utils.CreateCrawlerRecord("http://www.google.com")
+	resolveRequests <- utils.CreateCrawlerRecord("http://www.gotogle.com")
+	resolveRequests <- utils.CreateCrawlerRecord("https://www.google.com")
+	resolveRequests <- utils.CreateCrawlerRecord("https://www.amazon.ca")
+	resolveRequests <- utils.CreateCrawlerRecord("https://www.amazon.com")
+
+	close(resolveRequests)
 	wg.Wait()
 }
