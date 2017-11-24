@@ -14,8 +14,8 @@ func main() {
 	resolveRequests := make(chan resolver.Message)
 	results, resolveErrors := resolver.Create(resolveRequests)
 
-	downloadRequests := make(chan downloader.Request)
-	downloads, downloadErrors := downloader.Downloader(downloadRequests)
+	downloadRequests := make(chan downloader.Message)
+	downloads, downloadErrors := downloader.Create(downloadRequests)
 
 	wg.Add(4)
 	go func() {
@@ -23,7 +23,7 @@ func main() {
 		defer close(downloadRequests)
 		for result := range results {
 			fmt.Printf("%s: %s\n", result.HostName(), result.Address().String())
-			downloadRequest, ok := result.(downloader.Request)
+			downloadRequest, ok := result.(downloader.Message)
 			if ok {
 				downloadRequests <- downloadRequest
 			}

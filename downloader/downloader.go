@@ -10,12 +10,14 @@ import (
 	"time"
 )
 
-type Request interface {
+//TODO: logic for downloading robots.txt
+
+// Message interface is used for communication with the downloader
+type Message interface {
 	HostName() string
 	Path() string
 	Port() int
 	IsHttps() bool
-	// TODO: GetRobots() bool
 	Address() net.IP
 	SetResponse(*http.Response)
 	Body() *[]byte
@@ -24,9 +26,11 @@ type Request interface {
 	SetError(e string)
 }
 
-func Downloader(requests <-chan Request) (<-chan Request, <-chan Request) {
-	downloaded := make(chan Request)
-	failedDownloads := make(chan Request)
+// Create accepts a channel of messages containing download instructions
+// Create returns a channel of successful downloads and a channel of failed downloads
+func Create(requests <-chan Message) (<-chan Message, <-chan Message) {
+	downloaded := make(chan Message)
+	failedDownloads := make(chan Message)
 
 	go func() {
 		defer close(downloaded)
@@ -41,7 +45,7 @@ func Downloader(requests <-chan Request) (<-chan Request, <-chan Request) {
 	return downloaded, failedDownloads
 }
 
-func process(r Request, downloaded chan<- Request, toErr chan<- Request, wg *sync.WaitGroup) {
+func process(r Message, downloaded chan<- Message, toErr chan<- Message, wg *sync.WaitGroup) {
 	defer wg.Done()
 	wg.Add(1)
 	httpResponse, err := send(r)
@@ -55,11 +59,12 @@ func process(r Request, downloaded chan<- Request, toErr chan<- Request, wg *syn
 	//todo: error reporting
 }
 
-func send(r Request) (*http.Response, error) {
+func send(r Message) (*http.Response, error) {
 	var conn net.Conn
 	var err error
 
 	//TODO: back off from domains that are timing out
+	//TODO: HTTPS Timeout
 	if r.IsHttps() {
 		config := &tls.Config{InsecureSkipVerify: true}
 		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%d", r.Address().String(), r.Port()), config)

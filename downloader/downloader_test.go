@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func makeDownloadRequest(url string, addr net.IP) Request {
+func makeDownloadMessage(url string, addr net.IP) Message {
 	request := utils.CreateCrawlerRecord(url)
 	request.SetAddress(addr)
 	return request
@@ -32,14 +32,14 @@ func TestDownloader(t *testing.T) {
 	//Give the server time to start listening
 	time.Sleep(100 * time.Millisecond)
 
-	downloadRequests := make(chan Request)
+	downloadMessages := make(chan Message)
 	go func() {
-		defer close(downloadRequests)
-		downloadRequests <- makeDownloadRequest("http://monkeys.com:9090/monkey.html", net.IPv4(127, 0, 0, 1))
-		downloadRequests <- makeDownloadRequest("http://monkysrstr.co:8434.com/", net.IPv4(192, 168, 10, 1))
+		defer close(downloadMessages)
+		downloadMessages <- makeDownloadMessage("http://monkeys.com:9090/monkey.html", net.IPv4(127, 0, 0, 1))
+		downloadMessages <- makeDownloadMessage("http://monkysrstr.co:8434.com/", net.IPv4(192, 168, 10, 1))
 	}()
 
-	completed, failed := Downloader(downloadRequests)
+	completed, failed := Create(downloadMessages)
 
 	response := <-completed
 	if bytes.Compare(*response.Body(), []byte("Hello World!")) != 0 {
