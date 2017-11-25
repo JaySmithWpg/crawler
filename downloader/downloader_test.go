@@ -2,13 +2,15 @@ package downloader
 
 import (
 	"bytes"
-	"crawler/utils"
 	"fmt"
+	"github.com/JaySmithWpg/crawler/utils"
 	"net"
 	"net/http"
 	"testing"
 	"time"
 )
+
+//TODO: Stub out the crawler/utils dependency
 
 func makeDownloadMessage(url string, addr net.IP) Message {
 	request := utils.CreateCrawlerRecord(url)
@@ -36,22 +38,56 @@ func TestDownloader(t *testing.T) {
 	go func() {
 		defer close(downloadMessages)
 		downloadMessages <- makeDownloadMessage("http://monkeys.com:9090/monkey.html", net.IPv4(127, 0, 0, 1))
-		downloadMessages <- makeDownloadMessage("http://monkysrstr.co:8434.com/", net.IPv4(192, 168, 10, 1))
 	}()
 
-	completed, failed := Create(downloadMessages)
+	completed, _ := Create(downloadMessages)
 
 	response := <-completed
 	if bytes.Compare(*response.Body(), []byte("Hello World!")) != 0 {
 		t.Errorf("Unexpected Body: ", response.Body())
 	}
+}
 
-	failure := <-failed
-	if failure.HostName() != "monkysrstr.co" {
-		t.Errorf("Wrong domain failed: %s", failure.HostName())
+func TestHttpTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping long-running timeout test in short mode")
 	}
-	if failure.Error() != "dial tcp 192.168.10.1:0: i/o timeout" {
-		t.Errorf("Wrong error message: %s", failure.Error())
-	}
+	t.Parallel()
 
+	msg := makeDownloadMessage("http://monkeys.com/", net.IPv4(192, 168, 10, 1))
+
+	downloadMessages := make(chan Message)
+	go func() {
+		defer close(downloadMessages)
+		downloadMessages <- msg
+	}()
+
+	_, failed := Create(downloadMessages)
+
+	fail := <-failed
+	if fail.Error() != "dial tcp 192.168.10.1:80: getsockopt: connection timed out" {
+		t.Errorf("Wrong error message: %s", fail.Error())
+	}
+}
+
+func TestHttpsTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping long-running timeout test in short mode")
+	}
+	t.Parallel()
+
+	msg := makeDownloadMessage("https://monkeys.com/", net.IPv4(192, 168, 10, 1))
+
+	downloadMessages := make(chan Message)
+	go func() {
+		defer close(downloadMessages)
+		downloadMessages <- msg
+	}()
+
+	_, failed := Create(downloadMessages)
+
+	fail := <-failed
+	if fail.Error() != "dial tcp 192.168.10.1:443: getsockopt: connection timed out" {
+		t.Errorf("Wrong error message: %s", fail.Error())
+	}
 }

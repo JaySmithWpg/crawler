@@ -2,20 +2,49 @@ package utils
 
 import (
 	"bytes"
+	"net"
 	"net/http"
 	"reflect"
 	"testing"
 )
 
+func TestAddressPort(t *testing.T) {
+	var r CrawlerRecord
+	var addr net.IP
+
+	r = CreateCrawlerRecord("https://monkeys.com:65535/pie.html")
+	addr = net.IPv4(2, 2, 2, 2)
+	r.SetAddress(addr)
+	if r.Address() != "2.2.2.2:65535" {
+		t.Errorf("Incorrect Address: %s", r.Address())
+	}
+
+	r = CreateCrawlerRecord("http://monkeys.com/pie.html")
+	addr = net.IPv4(2, 2, 2, 2)
+	r.SetAddress(addr)
+	if r.Address() != "2.2.2.2:80" {
+		t.Errorf("Incorrect Address: %s", r.Address())
+	}
+
+	r = CreateCrawlerRecord("https://monkeys.com/pie.html")
+	addr = net.IPv4(2, 2, 2, 2)
+	r.SetAddress(addr)
+	if r.Address() != "2.2.2.2:443" {
+		t.Errorf("Incorrect Address: %s", r.Address())
+	}
+}
+
 func TestCreateCrawlerRecord(t *testing.T) {
 	r := CreateCrawlerRecord("https://monkeys.com:3444/banana/pie.html")
 
-	if r.HostName() != "monkeys.com" {
-		t.Errorf("Incorrect host name.")
+	hostTest := r.HostName()
+	if hostTest != "monkeys.com" {
+		t.Errorf("Incorrect host name: %s", hostTest)
 	}
 
-	if r.Path() != "/banana/pie.html" {
-		t.Errorf("Incorrect path.")
+	pathTest := r.Path()
+	if pathTest != "/banana/pie.html" {
+		t.Errorf("Incorrect path: %s", pathTest)
 	}
 
 	if r.Port() != 3444 {
@@ -34,8 +63,9 @@ func TestCreateCrawlerRecord(t *testing.T) {
 		t.Errorf("Wrong default port")
 	}
 
-	if CreateCrawlerRecord("http://pie.com").Path() != "/" {
-		t.Errorf("Root path not correctly set")
+	rootPath := CreateCrawlerRecord("http://pie.com").Path()
+	if rootPath != "/" {
+		t.Errorf("Root path not correctly set: %s", rootPath)
 	}
 }
 
@@ -52,6 +82,12 @@ func (b bodyStub) Close() error {
 	return nil
 }
 
+func TestUrl(t *testing.T) {
+	record := CreateCrawlerRecord("https://banana.com/pie/apple/orange.html")
+	if record.Url().String() != "https://banana.com/pie/apple/orange.html" {
+		t.Errorf("URL not set correctly")
+	}
+}
 func TestSetResponse(t *testing.T) {
 	record := CreateCrawlerRecord("https://monkeys.com")
 

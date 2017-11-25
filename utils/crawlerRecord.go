@@ -1,19 +1,22 @@
 package utils
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
 type CrawlerRecord interface {
+	Url() *url.URL
 	HostName() string
 	Path() string
-	Port() int
+	Port() uint16
 	IsHttps() bool
 	HasResponse() bool
-	Address() net.IP
+	Address() string
 	SetAddress(net.IP)
 	SetResponse(*http.Response)
 	Body() *[]byte
@@ -22,9 +25,9 @@ type CrawlerRecord interface {
 	SetError(string)
 }
 type crawlerRecord struct {
-	hostName    string
+	url         *url.URL
 	path        string
-	port        int
+	port        uint16
 	isHttps     bool
 	hasResponse bool
 	address     net.IP
@@ -33,15 +36,23 @@ type crawlerRecord struct {
 	error       string
 }
 
+func (c *crawlerRecord) Url() *url.URL {
+	return c.url
+}
+
 func (c *crawlerRecord) HostName() string {
-	return c.hostName
+	return c.url.Hostname()
 }
 
 func (c *crawlerRecord) Path() string {
-	return c.path
+	if c.url.Path != "" {
+		return c.url.Path
+	} else {
+		return "/"
+	}
 }
 
-func (c *crawlerRecord) Port() int {
+func (c *crawlerRecord) Port() uint16 {
 	return c.port
 }
 
@@ -49,8 +60,8 @@ func (c *crawlerRecord) IsHttps() bool {
 	return c.isHttps
 }
 
-func (c *crawlerRecord) Address() net.IP {
-	return c.address
+func (c *crawlerRecord) Address() string {
+	return fmt.Sprintf("%s:%d", c.address.String(), c.Port())
 }
 
 func (c *crawlerRecord) SetAddress(a net.IP) {
@@ -70,9 +81,11 @@ func (c *crawlerRecord) HasResponse() bool {
 }
 
 func (c *crawlerRecord) SetResponse(r *http.Response) {
-	c.body = make([]byte, r.ContentLength)
-	r.Body.Read(c.body)
-	r.Body.Close()
+	if r.ContentLength > 0 {
+		c.body = make([]byte, r.ContentLength)
+		r.Body.Read(c.body)
+		r.Body.Close()
+	}
 	c.headers = r.Header
 	c.hasResponse = true
 }
@@ -85,42 +98,28 @@ func (c *crawlerRecord) SetError(e string) {
 	c.error = e
 }
 
-//Take an url and turns it into a record for crawling
-func CreateCrawlerRecord(url string) CrawlerRecord {
-	isHttps := strings.HasPrefix(strings.ToLower(url), "https")
+func CreateRecordFromUrl(u *url.URL) CrawlerRecord {
+	isHttps := strings.HasPrefix(strings.ToLower(u.Scheme), "https")
 
-	var domainStart int
-	if isHttps {
-		domainStart = 8
-	} else {
-		domainStart = 7
-	}
+	port, err := strconv.ParseUint(u.Port(), 10, 16)
 
-	split := strings.SplitN(url[domainStart:len(url)], "/", 2)
-	hostDetails := strings.Split(split[0], ":")
-
-	var port int
-	if len(hostDetails) < 2 {
+	if err != nil {
 		if isHttps {
 			port = 443
 		} else {
 			port = 80
 		}
-	} else {
-		port, _ = strconv.Atoi(hostDetails[1])
-	}
-
-	var path string
-	if len(split) < 2 {
-		path = "/"
-	} else {
-		path = "/" + split[1]
 	}
 
 	return &crawlerRecord{
-		isHttps:  isHttps,
-		hostName: hostDetails[0],
-		port:     port,
-		path:     path,
+		url:     u,
+		isHttps: isHttps,
+		port:    uint16(port),
 	}
+}
+
+//Take an url and turns it into a record for crawling
+func CreateCrawlerRecord(s string) CrawlerRecord {
+	u, _ := url.Parse(s)
+	return CreateRecordFromUrl(u)
 }

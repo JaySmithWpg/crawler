@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 )
 
 //TODO: logic for downloading robots.txt
@@ -15,10 +14,10 @@ import (
 // Message interface is used for communication with the downloader
 type Message interface {
 	HostName() string
+	Port() uint16
 	Path() string
-	Port() int
 	IsHttps() bool
-	Address() net.IP
+	Address() string
 	SetResponse(*http.Response)
 	Body() *[]byte
 	Headers() map[string][]string
@@ -64,13 +63,13 @@ func send(r Message) (*http.Response, error) {
 	var err error
 
 	//TODO: back off from domains that are timing out
-	//TODO: HTTPS Timeout
 	if r.IsHttps() {
 		config := &tls.Config{InsecureSkipVerify: true}
-		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%d", r.Address().String(), r.Port()), config)
+		conn, err = tls.Dial("tcp", r.Address(), config)
 
 	} else {
-		conn, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", r.Address().String(), r.Port()), 5*time.Second)
+		conn, err = net.Dial("tcp", r.Address())
+		//conn, err = net.DialTimeout("tcp", r.Address(), 5*time.Second)
 	}
 
 	//Direct TCP connection for the request. The HTTP libraries would try to resolve

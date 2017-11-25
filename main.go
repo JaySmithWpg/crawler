@@ -1,10 +1,11 @@
 package main
 
 import (
-	"crawler/downloader"
-	"crawler/resolver"
-	"crawler/utils"
 	"fmt"
+	"github.com/JaySmithWpg/crawler/downloader"
+	"github.com/JaySmithWpg/crawler/parser"
+	"github.com/JaySmithWpg/crawler/resolver"
+	"github.com/JaySmithWpg/crawler/utils"
 	"sync"
 )
 
@@ -17,12 +18,15 @@ func main() {
 	downloadRequests := make(chan downloader.Message)
 	downloads, downloadErrors := downloader.Create(downloadRequests)
 
-	wg.Add(4)
+	parseRequests := make(chan parser.Request)
+	urls := parser.Create(parseRequests)
+
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		defer close(downloadRequests)
 		for result := range results {
-			fmt.Printf("%s: %s\n", result.HostName(), result.Address().String())
+			fmt.Printf("Resolved %s: %s\n", result.HostName(), result.Address())
 			downloadRequest, ok := result.(downloader.Message)
 			if ok {
 				downloadRequests <- downloadRequest
@@ -33,25 +37,39 @@ func main() {
 	go func() {
 		defer wg.Done()
 		for err := range resolveErrors {
-			fmt.Printf("Error: %s\n", err.Error())
+			fmt.Printf("Resolver Error: %s\n", err.Error())
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
+		defer close(parseRequests)
 		for downloaded := range downloads {
-			fmt.Printf("%s\n", downloaded.Headers())
+			parseRequest, ok := downloaded.(parser.Request)
+			if ok {
+				fmt.Printf("File Downloaded: %s\n", parseRequest.Url())
+				parseRequests <- parseRequest
+			} else {
+				fmt.Printf("Could not cast parser request\n")
+			}
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		for downloadError := range downloadErrors {
-			fmt.Printf("%s: %s\n", downloadError.HostName(), downloadError.Error())
+			fmt.Printf("Download Error: %s - %s\n", downloadError.HostName(), downloadError.Error())
 		}
 	}()
 
-	resolveRequests <- utils.CreateCrawlerRecord("http://www.google.com")
+	go func() {
+		defer wg.Done()
+		for url := range urls {
+			fmt.Printf("Url Parsed: %s\n", url.String())
+		}
+	}()
+
+	resolveRequests <- utils.CreateCrawlerRecord("http://www.google.com:80")
 	resolveRequests <- utils.CreateCrawlerRecord("http://www.gotogle.com")
 	resolveRequests <- utils.CreateCrawlerRecord("https://www.google.com")
 	resolveRequests <- utils.CreateCrawlerRecord("https://www.amazon.ca")

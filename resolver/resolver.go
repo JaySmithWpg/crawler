@@ -9,7 +9,7 @@ import (
 // Message interface passed to and from the resolver
 type Message interface {
 	HostName() string
-	Address() net.IP
+	Address() string
 	SetAddress(net.IP)
 	Error() string
 	SetError(string)
