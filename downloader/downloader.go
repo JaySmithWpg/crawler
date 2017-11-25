@@ -38,6 +38,7 @@ func Create(requests <-chan Message) (<-chan Message, <-chan Message) {
 
 		var wg sync.WaitGroup
 		for request := range requests {
+			wg.Add(1)
 			go process(request, downloaded, failedDownloads, &wg)
 		}
 		wg.Wait()
@@ -47,7 +48,6 @@ func Create(requests <-chan Message) (<-chan Message, <-chan Message) {
 
 func process(r Message, downloaded chan<- Message, toErr chan<- Message, wg *sync.WaitGroup) {
 	defer wg.Done()
-	wg.Add(1)
 	httpResponse, err := send(r)
 	if err == nil {
 		r.SetResponse(httpResponse)
