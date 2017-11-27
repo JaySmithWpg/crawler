@@ -1,6 +1,4 @@
-// filter serves as the brains of the crawler.
 // The filter will not let duplicate urls or urls that violate robots.txt pass.
-// The filter will delay requests that threaten to overwhelm hosts
 package filter
 
 import (
@@ -15,12 +13,10 @@ import (
 //       but we'll try it first before decided if something like a red-black tree
 //       is required.
 type host struct {
-	blacklist      chan bool
-	failedAttempts int
-	urlsSeen       map[string]bool
-	requests       chan *url.URL
-	httpResp       chan *http.Response
-	response       chan<- *url.URL
+	blacklist chan bool
+	urlsSeen  map[string]bool
+	requests  chan *url.URL
+	response  chan<- *url.URL
 }
 
 func (h *host) isValid(u *url.URL) bool {
@@ -36,7 +32,6 @@ func (h *host) isValid(u *url.URL) bool {
 func (h *host) run(wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer close(h.blacklist)
-	defer close(h.httpResp)
 
 	blacklisted := false
 	for {
@@ -56,8 +51,7 @@ func (h *host) run(wg *sync.WaitGroup) {
 type Filter interface {
 	Test(*url.URL)
 	Results() <-chan *url.URL
-	Blacklist(string)
-	ProcessResponse(*http.Response)
+	BlacklistHost(string)
 	Close()
 }
 
@@ -66,7 +60,6 @@ type filter struct {
 	results       chan *url.URL
 	hosts         map[string]*host
 	blacklist     chan string
-	responses     chan *http.Response
 	hostWaitGroup sync.WaitGroup
 }
 
@@ -76,7 +69,6 @@ func Create() Filter {
 		results:       make(chan *url.URL),
 		hosts:         make(map[string]*host),
 		blacklist:     make(chan string),
-		responses:     make(chan *http.Response),
 		hostWaitGroup: sync.WaitGroup{},
 	}
 	go f.run()
@@ -91,12 +83,8 @@ func (f *filter) Results() <-chan *url.URL {
 	return f.results
 }
 
-func (f *filter) Blacklist(host string) {
+func (f *filter) BlacklistHost(host string) {
 	f.blacklist <- host
-}
-
-func (f *filter) ProcessResponse(r *http.Response) {
-	f.responses <- r
 }
 
 func (f *filter) Close() {
@@ -112,7 +100,6 @@ func (f *filter) getHost(hst string) *host {
 		h = &host{
 			blacklist: make(chan bool),
 			requests:  make(chan *url.URL, 5),
-			httpResp:  make(chan *http.Response, 2),
 			response:  f.results,
 			urlsSeen:  make(map[string]bool),
 		}
@@ -136,7 +123,6 @@ func (f *filter) closeHosts() {
 }
 
 func (f *filter) run() {
-	defer close(f.responses)
 	defer close(f.blacklist)
 	defer close(f.results)
 
@@ -152,9 +138,6 @@ func (f *filter) run() {
 		case hostKey := <-f.blacklist:
 			host := f.getHost(hostKey)
 			host.blacklist <- true
-		case httpResp := <-f.responses:
-			host := f.getHost(httpResp.Request.URL.Host)
-			host.httpResp <- httpResp
 		}
 	}
 }

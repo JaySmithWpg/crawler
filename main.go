@@ -71,7 +71,7 @@ func main() {
 
 	resolveRequests <- utils.CreateCrawlerRecord("http://www.google.com:80")
 	resolveRequests <- utils.CreateCrawlerRecord("http://www.gotogle.com")
-	resolveRequests <- utils.CreateCrawlerRecord("https://www.google.com")
+	resolveRequests <- utils.CreateCrawlerRecord("https://www.cnn.com")
 	resolveRequests <- utils.CreateCrawlerRecord("https://www.amazon.ca")
 	resolveRequests <- utils.CreateCrawlerRecord("https://www.amazon.com")
 

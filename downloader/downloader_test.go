@@ -1,28 +1,22 @@
 package downloader
 
 import (
-	"bytes"
 	"fmt"
-	"github.com/JaySmithWpg/crawler/utils"
-	"net"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
 
-//TODO: Stub out the crawler/utils dependency
-
-func makeDownloadMessage(url string, addr net.IP) Message {
-	request := utils.CreateCrawlerRecord(url)
-	request.SetAddress(addr)
+func makeDownloadMessage(urlString string, addr string) Message {
+	u, _ := url.Parse(urlString)
+	request := CreateMessage(u, addr)
 	return request
 }
 
 func serveTestPage(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	if r.Host == "monkeys.com:9090" || r.Host == "monkeys.com:9091" {
-		fmt.Fprintf(w, "Hello World!") // send data to client side
-	}
+	fmt.Fprintf(w, "Hello World!") // send data to client side
 }
 
 func TestDownloader(t *testing.T) {
@@ -34,17 +28,15 @@ func TestDownloader(t *testing.T) {
 	//Give the server time to start listening
 	time.Sleep(100 * time.Millisecond)
 
-	downloadMessages := make(chan Message)
+	d := Create()
 	go func() {
-		defer close(downloadMessages)
-		downloadMessages <- makeDownloadMessage("http://monkeys.com:9090/monkey.html", net.IPv4(127, 0, 0, 1))
+		defer d.Close()
+		d.Request(makeDownloadMessage("http://monkeys.com:9090/monkey.html", "127.0.0.1:9090"))
 	}()
 
-	completed, _ := Create(downloadMessages)
-
-	response := <-completed
-	if bytes.Compare(*response.Body(), []byte("Hello World!")) != 0 {
-		t.Errorf("Unexpected Body: ", response.Body())
+	r := <-d.Completed()
+	if r.Response().StatusCode != 200 {
+		t.Errorf("Bad Response Code Returned: %d", r.Response().StatusCode)
 	}
 }
 
@@ -54,17 +46,15 @@ func TestHttpTimeout(t *testing.T) {
 	}
 	t.Parallel()
 
-	msg := makeDownloadMessage("http://monkeys.com/", net.IPv4(192, 168, 10, 1))
+	msg := makeDownloadMessage("http://monkeys.com/", "192.168.10.1:80")
 
-	downloadMessages := make(chan Message)
+	d := Create()
 	go func() {
-		defer close(downloadMessages)
-		downloadMessages <- msg
+		defer d.Close()
+		d.Request(msg)
 	}()
 
-	_, failed := Create(downloadMessages)
-
-	fail := <-failed
+	fail := <-d.Failed()
 	if fail.Error() != "dial tcp 192.168.10.1:80: getsockopt: connection timed out" {
 		t.Errorf("Wrong error message: %s", fail.Error())
 	}
@@ -76,17 +66,15 @@ func TestHttpsTimeout(t *testing.T) {
 	}
 	t.Parallel()
 
-	msg := makeDownloadMessage("https://monkeys.com/", net.IPv4(192, 168, 10, 1))
+	msg := makeDownloadMessage("https://monkeys.com/", "192.168.10.1:443")
 
-	downloadMessages := make(chan Message)
+	d := Create()
 	go func() {
-		defer close(downloadMessages)
-		downloadMessages <- msg
+		defer d.Close()
+		d.Request(msg)
 	}()
 
-	_, failed := Create(downloadMessages)
-
-	fail := <-failed
+	fail := <-d.Failed()
 	if fail.Error() != "dial tcp 192.168.10.1:443: getsockopt: connection timed out" {
 		t.Errorf("Wrong error message: %s", fail.Error())
 	}

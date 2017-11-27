@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 )
 
@@ -13,71 +14,134 @@ import (
 
 // Message interface is used for communication with the downloader
 type Message interface {
-	HostName() string
-	Port() uint16
-	Path() string
-	IsHttps() bool
+	Url() *url.URL
 	Address() string
 	SetResponse(*http.Response)
-	Body() *[]byte
-	Headers() map[string][]string
+	Response() *http.Response
+	SetError(string)
 	Error() string
-	SetError(e string)
+}
+
+type message struct {
+	url      *url.URL
+	response *http.Response
+	address  string
+	error    string
+}
+
+func (m *message) Url() *url.URL {
+	return m.url
+}
+
+func (m *message) Address() string {
+	return m.address
+}
+
+func (m *message) SetResponse(r *http.Response) {
+	m.response = r
+}
+
+func (m *message) Response() *http.Response {
+	return m.response
+}
+
+func (m *message) SetError(e string) {
+	m.error = e
+}
+
+func (m *message) Error() string {
+	return m.error
+}
+
+func CreateMessage(u *url.URL, a string) Message {
+	return &message{
+		url:     u,
+		address: a,
+	}
+}
+
+type Downloader interface {
+	Request(Message)
+	Completed() <-chan Message
+	Failed() <-chan Message
+	Close()
+}
+
+type downloader struct {
+	requests        chan Message
+	downloaded      chan Message
+	failedDownloads chan Message
 }
 
 // Create accepts a channel of messages containing download instructions
 // Create returns a channel of successful downloads and a channel of failed downloads
-func Create(requests <-chan Message) (<-chan Message, <-chan Message) {
-	downloaded := make(chan Message)
-	failedDownloads := make(chan Message)
-
-	go func() {
-		defer close(downloaded)
-		defer close(failedDownloads)
-
-		var wg sync.WaitGroup
-		for request := range requests {
-			wg.Add(1)
-			go process(request, downloaded, failedDownloads, &wg)
-		}
-		wg.Wait()
-	}()
-	return downloaded, failedDownloads
+func Create() Downloader {
+	d := &downloader{
+		requests:        make(chan Message),
+		downloaded:      make(chan Message),
+		failedDownloads: make(chan Message),
+	}
+	go d.run()
+	return d
 }
 
-func process(r Message, downloaded chan<- Message, toErr chan<- Message, wg *sync.WaitGroup) {
+func (d *downloader) Request(m Message) {
+	d.requests <- m
+}
+
+func (d *downloader) Completed() <-chan Message {
+	return d.downloaded
+}
+
+func (d *downloader) Failed() <-chan Message {
+	return d.failedDownloads
+}
+
+func (d *downloader) Close() {
+	close(d.requests)
+}
+
+func (d *downloader) run() {
+	defer close(d.downloaded)
+	defer close(d.failedDownloads)
+
+	var wg sync.WaitGroup
+	for request := range d.requests {
+		wg.Add(1)
+		go d.process(request, &wg)
+	}
+	wg.Wait()
+}
+
+func (d *downloader) process(r Message, wg *sync.WaitGroup) {
 	defer wg.Done()
 	httpResponse, err := send(r)
 	if err == nil {
 		r.SetResponse(httpResponse)
-		downloaded <- r
+		d.downloaded <- r
 	} else {
 		r.SetError(err.Error())
-		toErr <- r
+		d.failedDownloads <- r
 	}
-	//todo: error reporting
 }
 
 func send(r Message) (*http.Response, error) {
 	var conn net.Conn
 	var err error
-
 	//TODO: back off from domains that are timing out
-	if r.IsHttps() {
+	if r.Url().Scheme == "https" {
 		config := &tls.Config{InsecureSkipVerify: true}
 		conn, err = tls.Dial("tcp", r.Address(), config)
 
 	} else {
 		conn, err = net.Dial("tcp", r.Address())
-		//conn, err = net.DialTimeout("tcp", r.Address(), 5*time.Second)
 	}
-
 	//Direct TCP connection for the request. The HTTP libraries would try to resolve
 	//the domain for us - we don't want that.
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(conn, "GET %s HTTP/1.0\r\nHost: %s:%d\r\n\r\n", r.Path(), r.HostName(), r.Port())
+	fmt.Fprintf(conn, "GET %s HTTP/1.0\r\nHost: %s\n\n", r.Url().Path, r.Url().Host)
 
 	//Using the built in HTTP libraries to parse the response
 	httpResponse, err := http.ReadResponse(bufio.NewReader(conn), nil)
