@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-func makeDownloadMessage(urlString string, addr string) Message {
+//TODO: this is entirely unneeded
+func makeDownloadMessage(urlString string, addr string) *url.URL {
 	u, _ := url.Parse(urlString)
-	request := CreateMessage(u, addr)
-	return request
+	return u
 }
 
 func serveTestPage(w http.ResponseWriter, r *http.Request) {
@@ -31,12 +31,12 @@ func TestDownloader(t *testing.T) {
 	d := Create()
 	go func() {
 		defer d.Close()
-		d.Request(makeDownloadMessage("http://monkeys.com:9090/monkey.html", "127.0.0.1:9090"))
+		d.Request(makeDownloadMessage("http://localhost:9090/monkey.html", "127.0.0.1:9090"))
 	}()
 
 	r := <-d.Completed()
-	if r.Response().StatusCode != 200 {
-		t.Errorf("Bad Response Code Returned: %d", r.Response().StatusCode)
+	if r.StatusCode != 200 {
+		t.Errorf("Bad Response Code Returned: %d", r.StatusCode)
 	}
 }
 
@@ -46,7 +46,7 @@ func TestHttpTimeout(t *testing.T) {
 	}
 	t.Parallel()
 
-	msg := makeDownloadMessage("http://monkeys.com/", "192.168.10.1:80")
+	msg := makeDownloadMessage("http://localhost:10000/", "192.168.10.1:80")
 
 	d := Create()
 	go func() {
@@ -55,7 +55,7 @@ func TestHttpTimeout(t *testing.T) {
 	}()
 
 	fail := <-d.Failed()
-	if fail.Error() != "dial tcp 192.168.10.1:80: getsockopt: connection timed out" {
+	if fail.Error() != "Get http://localhost:10000/: dial tcp [::1]:10000: i/o timeout" {
 		t.Errorf("Wrong error message: %s", fail.Error())
 	}
 }
@@ -66,7 +66,7 @@ func TestHttpsTimeout(t *testing.T) {
 	}
 	t.Parallel()
 
-	msg := makeDownloadMessage("https://monkeys.com/", "192.168.10.1:443")
+	msg := makeDownloadMessage("https://localhost:10000/", "192.168.10.1:443")
 
 	d := Create()
 	go func() {
@@ -75,7 +75,7 @@ func TestHttpsTimeout(t *testing.T) {
 	}()
 
 	fail := <-d.Failed()
-	if fail.Error() != "dial tcp 192.168.10.1:443: getsockopt: connection timed out" {
+	if fail.Error() != "Get https://localhost:10000/: dial tcp [::1]:10000: i/o timeout" {
 		t.Errorf("Wrong error message: %s", fail.Error())
 	}
 }
