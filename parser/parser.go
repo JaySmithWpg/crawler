@@ -1,46 +1,65 @@
 package parser
 
 import (
-	"bytes"
 	"golang.org/x/net/html"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 )
 
-type Request interface {
-	Url() *url.URL
-	Body() *[]byte
-	Headers() map[string][]string
+type Parser interface {
+	Parse(*http.Response)
+	Urls() <-chan *url.URL
+	Close()
 }
 
-func Create(requests <-chan Request) <-chan *url.URL {
-	urls := make(chan *url.URL)
-
-	go func() {
-		defer close(urls)
-		var wg sync.WaitGroup
-		for request := range requests {
-			wg.Add(1)
-			go parseBody(request, urls, &wg)
-		}
-		wg.Wait()
-	}()
-	return urls
+type parser struct {
+	requests chan *http.Response
+	urls     chan *url.URL
 }
 
-func parseBody(request Request, urls chan<- *url.URL, wg *sync.WaitGroup) {
+func Create() Parser {
+	p := &parser{
+		requests: make(chan *http.Response),
+		urls:     make(chan *url.URL),
+	}
+	go p.run()
+	return p
+}
+func (p *parser) run() {
+	defer close(p.urls)
+	var wg sync.WaitGroup
+	for request := range p.requests {
+		wg.Add(1)
+		go parseBody(request, p.urls, &wg)
+	}
+	wg.Wait()
+}
+
+func (p *parser) Parse(r *http.Response) {
+	p.requests <- r
+}
+
+func (p *parser) Urls() <-chan *url.URL {
+	return p.urls
+}
+
+func (p *parser) Close() {
+	close(p.requests)
+}
+
+func parseBody(request *http.Response, urls chan<- *url.URL, wg *sync.WaitGroup) {
 	defer wg.Done()
-	r := bytes.NewReader(*request.Body())
 	//TODO: error handling
-	doc, _ := html.Parse(r)
+	doc, _ := html.Parse(request.Body)
 
 	var f func(*html.Node)
 	f = func(n *html.Node) {
 		if n.Type == html.ElementNode && strings.ToLower(n.Data) == "a" {
 			for i := range n.Attr {
 				if strings.ToLower(n.Attr[i].Key) == "href" {
-					urls <- parseUrl(request.Url(), n.Attr[i].Val)
+					urls <- parseUrl(request.Request.URL, n.Attr[i].Val)
 					break
 				}
 			}
