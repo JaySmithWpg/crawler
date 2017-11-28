@@ -2,7 +2,6 @@
 package filter
 
 import (
-	"net/http"
 	"net/url"
 	"sync"
 )

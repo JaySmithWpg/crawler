@@ -1,7 +1,6 @@
 package filter
 
 import (
-	"net/http"
 	"net/url"
 	"testing"
 	"time"
